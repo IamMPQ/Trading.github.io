@@ -1,0 +1,61 @@
+{
+  "nifty50": [
+    "RELIANCE", "TCS", "HDFCBANK", "INFY", "ICICIBANK",
+    "HINDUNILVR", "ITC", "SBIN", "BHARTIARTL", "KOTAKBANK",
+    "BAJFINANCE", "LT", "WIPRO", "AXISBANK", "TITAN",
+    "ADANIENT", "ASIANPAINT", "NTPC", "MARUTI", "SUNPHARMA",
+    "TATAMOTORS", "POWERGRID", "ULTRACEMCO", "HCLTECH", "BAJAJFINSV",
+    "ADANIPORTS", "TATASTEEL", "JSWSTEEL", "TECHM", "HINDALCO",
+    "COALINDIA", "BRITANNIA", "DIVISLAB", "GRASIM", "SBILIFE",
+    "DRREDDY", "CIPLA", "APOLLOHOSP", "EICHERMOT", "HDFCLIFE",
+    "BPCL", "IOC", "HEROMOTOCO", "BAJAJ-AUTO", "M&M",
+    "TRENT", "INDUSINDBK", "NESTLEIND", "ONGC", "BEL"
+  ],
+  "niftyNext50": [
+    "ADANIGREEN", "ADANIPOWER", "ADANITRANS", "AMBUJACEM", "AUROPHARMA",
+    "BANDHANBNK", "BANKBARODA", "BERGEPAINT", "BHARATFORG", "BHEL",
+    "BIOCON", "BOSCHLTD", "CANBK", "CHOLAFIN", "CONCOR",
+    "DABUR", "DALBHARAT", "DIXON", "DLF", "FEDERALBNK",
+    "GAIL", "GODREJCP", "GODREJPROP", "GUJGASLTD", "HAL",
+    "HAVELLS", "HINDZINC", "ICICIPRULI", "IDEA", "IDFCFIRSTB",
+    "IEX", "IGL", "INDIGO", "INDUSINDBK", "IRCTC",
+    "IRFC", "JINDALSTEL", "LICHSGFIN", "LTIM", "MCDOWELL-N",
+    "MGL", "MOTHERSON", "NATIONALUM", "NAUKRI", "NHPC",
+    "PIDILITIND", "PFC", "POLYCAB", "PNB", "RECLTD",
+    "SAIL", "SIEMENS", "SRTRANSFIN", "TORNTPHARM", "TVSMOTOR",
+    "VEDL", "YESBANK", "ZOMATO", "ZYDUSLIFE"
+  ],
+  "indices": {
+    "^NSEI": "Nifty 50",
+    "^BSESN": "Sensex",
+    "^NSEBANK": "Bank Nifty",
+    "^CNXFINANCE": "Nifty Financial Services",
+    "^CNXIT": "Nifty IT",
+    "^CNXAUTO": "Nifty Auto",
+    "^CNXPHARMA": "Nifty Pharma",
+    "^CNXFMCG": "Nifty FMCG",
+    "^CNXMETAL": "Nifty Metal",
+    "^CNXREALTY": "Nifty Realty",
+    "^CNXENERGY": "Nifty Energy",
+    "^CNXMEDIA": "Nifty Media",
+    "^CNXPSU": "Nifty PSU Bank",
+    "^INDIAVIX": "India VIX"
+  },
+  "sectors": [
+    "Information Technology",
+    "Banking",
+    "Pharmaceuticals",
+    "Automobile",
+    "FMCG",
+    "Metals & Mining",
+    "Real Estate",
+    "Energy & Power",
+    "PSU Banks",
+    "Media & Entertainment",
+    "Financial Services",
+    "Infrastructure",
+    "Chemicals",
+    "Textiles",
+    "Telecommunications"
+  ]
+}

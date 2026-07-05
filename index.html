@@ -1,779 +1,326 @@
-<!DOCTYPE html>
-<html lang="en" data-theme="dark">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Intraday Trading Platform</title>
-    <meta name="description" content="AI-powered Indian intraday trading analysis platform. Real-time NSE/BSE market data, technical analysis, and intelligent recommendations.">
-    <meta name="keywords" content="intraday trading, NSE, BSE, stock market, AI trading, Indian stock market, technical analysis">
-    <meta name="author" content="IamMPQ">
-    <meta property="og:title" content="AI Intraday Trading Platform">
-    <meta property="og:description" content="AI-powered analysis for Indian stock market intraday trading">
-    <meta property="og:type" content="website">
-    <meta name="robots" content="index, follow">
+/**
+ * AI Trading Platform - Stock Scanner Component
+ */
 
-    <!-- Preconnect to APIs -->
-    <link rel="preconnect" href="https://query1.finance.yahoo.com">
-    <link rel="preconnect" href="https://www.nseindia.com">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
+let autoScanInterval = null;
 
-    <!-- Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+async function runScanner() {
+    const filter = document.getElementById('scanner-filter')?.value || 'all';
+    const resultsBody = document.getElementById('scanner-body');
+    const statsDiv = document.getElementById('scanner-stats');
+    
+    if (!resultsBody) return;
 
-    <!-- Lightweight Charts -->
-    <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+    showNotification('Scanning NSE stocks...', 'info', 2000);
 
-    <!-- Font Awesome for Icons -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    resultsBody.innerHTML = `<tr><td colspan="12" class="empty-row">
+        <i class="fas fa-spinner fa-spin"></i> Scanning...
+    </td></tr>`;
 
-    <!-- Main Stylesheet -->
-    <link rel="stylesheet" href="src/css/main.css">
-    <link rel="stylesheet" href="src/css/dark.css">
-    <link rel="stylesheet" href="src/css/light.css">
-    <link rel="stylesheet" href="src/css/responsive.css">
+    try {
+        // Get symbols to scan
+        const symbols = CONFIG.MARKET.nseSymbols.slice(0, 50);
+        
+        // Fetch data for each symbol
+        const ohlcDataMap = {};
+        
+        // Fetch in batches
+        const batchSize = 5;
+        for (let i = 0; i < symbols.length; i += batchSize) {
+            const batch = symbols.slice(i, i + batchSize);
+            const promises = batch.map(async (symbol) => {
+                try {
+                    const data = await MarketAPI.getChart(symbol, '15m', '5d');
+                    if (data && data.length > 20) {
+                        ohlcDataMap[symbol] = data;
+                    } else {
+                        // Generate mock data for demo
+                        ohlcDataMap[symbol] = generateMockOHLC(symbol);
+                    }
+                } catch (e) {
+                    ohlcDataMap[symbol] = generateMockOHLC(symbol);
+                }
+            });
+            
+            await Promise.allSettled(promises);
+        }
+        
+        // Run AI analysis on all symbols
+        const news = await NewsAPI.getNews('general', 20);
+        const results = await aiEngine.analyzeStocks(
+            Object.keys(ohlcDataMap),
+            ohlcDataMap,
+            news,
+            {}
+        );
 
-    <!-- PWA Support -->
-    <link rel="manifest" href="manifest.json">
-    <meta name="theme-color" content="#0f0f1a">
-    <meta name="apple-mobile-web-app-capable" content="yes">
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-</head>
-<body>
-    <!-- App Container -->
-    <div id="app">
-        <!-- Loading Screen -->
-        <div id="loading-screen">
-            <div class="loader-container">
-                <div class="loader-ring"></div>
-                <div class="loader-text">
-                    <span class="loader-title">AI Intraday Trading</span>
-                    <span class="loader-subtitle">Loading market data...</span>
-                </div>
-                <div class="loader-progress">
-                    <div class="loader-progress-bar" id="loader-progress-bar"></div>
-                </div>
-            </div>
-        </div>
+        // Generate signals for symbols that weren't analyzed (fallback)
+        const allResults = [];
+        symbols.forEach(symbol => {
+            const existing = results.find(r => r.symbol === symbol);
+            if (existing) {
+                allResults.push(existing);
+            } else {
+                // Generate basic analysis
+                allResults.push(generateBasicAnalysis(symbol));
+            }
+        });
 
-        <!-- Sidebar Navigation -->
-        <nav id="sidebar" class="sidebar">
-            <div class="sidebar-header">
-                <div class="logo">
-                    <i class="fas fa-robot logo-icon"></i>
-                    <div class="logo-text">
-                        <span class="logo-title">AI Trader</span>
-                        <span class="logo-subtitle">Intraday Analysis</span>
+        // Update app state
+        APP.state.recommendations = allResults;
+        APP.state.scannerResults = allResults;
+
+        // Apply active filter
+        const filteredResults = aiEngine.getScannerData(filter);
+
+        // Update stats
+        if (statsDiv) {
+            const buys = allResults.filter(r => r.signal === 'buy' || r.signal === 'strong-buy').length;
+            const sells = allResults.filter(r => r.signal === 'sell' || r.signal === 'strong-sell').length;
+            const neutrals = allResults.filter(r => r.signal === 'neutral').length;
+            
+            statsDiv.innerHTML = `
+                <span class="stat-chip" style="background: var(--positive-bg); color: var(--positive);">
+                    <i class="fas fa-arrow-up"></i> ${buys} Buy Signals
+                </span>
+                <span class="stat-chip" style="background: var(--negative-bg); color: var(--negative);">
+                    <i class="fas fa-arrow-down"></i> ${sells} Sell Signals
+                </span>
+                <span class="stat-chip" style="background: var(--warning-bg); color: var(--warning);">
+                    <i class="fas fa-minus"></i> ${neutrals} Neutral
+                </span>
+                <span class="stat-chip">📊 ${allResults.length} Scanned</span>
+                <span class="stat-chip">🎯 ${filteredResults.length} Results</span>
+            `;
+        }
+
+        // Render results
+        renderScannerResults(filteredResults, resultsBody);
+        
+        // Update badges
+        const buyCount = allResults.filter(r => r.signal === 'buy' || r.signal === 'strong-buy').length;
+        const badge = document.getElementById('scanner-badge');
+        if (badge) badge.textContent = buyCount;
+
+        showNotification(`Scan complete! Found ${buyCount} buy signals.`, 'success');
+    } catch (error) {
+        console.error('Scanner error:', error);
+        resultsBody.innerHTML = `<tr><td colspan="12" class="empty-row">
+            Error scanning stocks. Please try again.
+        </td></tr>`;
+        showNotification('Scanner encountered an error', 'error');
+    }
+}
+
+function renderScannerResults(results, body) {
+    if (!body) return;
+    
+    if (results.length === 0) {
+        body.innerHTML = `<tr><td colspan="12" class="empty-row">
+            No stocks match the current filter.
+        </td></tr>`;
+        return;
+    }
+
+    body.innerHTML = results.map((stock, index) => `
+        <tr class="${stock.signal === 'strong-buy' || stock.signal === 'buy' ? 'row-buy' : 
+                     stock.signal === 'strong-sell' || stock.signal === 'sell' ? 'row-sell' : ''}">
+            <td>${index + 1}</td>
+            <td><strong>${stock.symbol}</strong></td>
+            <td>₹${formatPrice(stock.currentPrice)}</td>
+            <td>
+                <span class="ai-pick-signal ${getSignalClass(stock.signal)}" style="font-size: 0.7rem;">
+                    ${getSignalLabel(stock.signal)}
+                </span>
+            </td>
+            <td>
+                <div class="confidence-bar" style="width: 60px; display: inline-block; vertical-align: middle;">
+                    <div class="confidence-fill" style="width: ${stock.confidence}%; 
+                        background: ${stock.confidence >= 60 ? 'var(--positive)' : stock.confidence >= 40 ? 'var(--warning)' : 'var(--negative)'}">
                     </div>
                 </div>
-                <button class="sidebar-toggle" id="sidebar-toggle" aria-label="Toggle Sidebar">
-                    <i class="fas fa-bars"></i>
+                <span style="font-size: 0.75rem; margin-left: 4px;">${stock.confidence}%</span>
+            </td>
+            <td><strong>${stock.score}/100</strong></td>
+            <td>${stock.signal === 'strong-buy' || stock.signal === 'buy' ? 'BUY' : 
+                    stock.signal === 'strong-sell' || stock.signal === 'sell' ? 'SELL' : 'WAIT'}</td>
+            <td>₹${formatPrice(stock.entry)}</td>
+            <td class="${stock.signal === 'sell' || stock.signal === 'strong-sell' ? 'negative' : ''}">
+                ₹${formatPrice(stock.stopLoss)}
+            </td>
+            <td class="positive">₹${formatPrice(stock.targets?.[0] || 'N/A')}</td>
+            <td>${stock.riskReward}</td>
+            <td>
+                <button class="btn btn-sm btn-secondary" onclick="showStockDetail('${stock.symbol}')">
+                    <i class="fas fa-info-circle"></i>
                 </button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+function startAutoScan() {
+    if (autoScanInterval) {
+        clearInterval(autoScanInterval);
+        autoScanInterval = null;
+        showNotification('Auto-scan stopped', 'info');
+        return;
+    }
+
+    const refreshInterval = parseInt(document.getElementById('settings-refresh')?.value || CONFIG.MARKET.refreshInterval);
+    autoScanInterval = setInterval(() => {
+        runScanner();
+    }, Math.max(refreshInterval, 30000)); // Min 30 seconds for scanner
+    
+    showNotification('Auto-scan started', 'success');
+    
+    // Update button text
+    const btn = document.querySelector('button[onclick="startAutoScan()"]');
+    if (btn) btn.innerHTML = '<i class="fas fa-stop"></i> Stop Auto-Scan';
+}
+
+function showStockDetail(symbol) {
+    const rec = aiEngine.getRecommendation(symbol);
+    if (!rec) {
+        showNotification(`No analysis found for ${symbol}`, 'warning');
+        return;
+    }
+
+    const modal = document.getElementById('modal');
+    const title = document.getElementById('modal-title');
+    const body = document.getElementById('modal-body');
+    const footer = document.getElementById('modal-footer');
+
+    title.textContent = `${symbol} - Detailed Analysis`;
+    
+    body.innerHTML = `
+        <div style="display: grid; gap: var(--spacing-md);">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-size: 1.5rem; font-weight: 700;">₹${formatPrice(rec.currentPrice)}</span>
+                <span class="ai-pick-signal ${getSignalClass(rec.signal)}" style="font-size: 1rem; padding: 6px 16px;">
+                    ${getSignalLabel(rec.signal)}
+                </span>
             </div>
 
-            <div class="sidebar-nav">
-                <a href="#dashboard" class="nav-item active" data-view="dashboard">
-                    <i class="fas fa-th-large"></i>
-                    <span>Dashboard</span>
-                </a>
-                <a href="#scanner" class="nav-item" data-view="scanner">
-                    <i class="fas fa-search"></i>
-                    <span>Stock Scanner</span>
-                    <span class="nav-badge" id="scanner-badge">0</span>
-                </a>
-                <a href="#watchlist" class="nav-item" data-view="watchlist">
-                    <i class="fas fa-star"></i>
-                    <span>Watchlist</span>
-                </a>
-                <a href="#charts" class="nav-item" data-view="charts">
-                    <i class="fas fa-chart-line"></i>
-                    <span>Charts</span>
-                </a>
-                <a href="#recommendations" class="nav-item" data-view="recommendations">
-                    <i class="fas fa-bullhorn"></i>
-                    <span>Recommendations</span>
-                    <span class="nav-badge accent" id="rec-badge">0</span>
-                </a>
-                <a href="#ai-assistant" class="nav-item" data-view="assistant">
-                    <i class="fas fa-brain"></i>
-                    <span>AI Assistant</span>
-                </a>
-                <a href="#risk-manager" class="nav-item" data-view="risk">
-                    <i class="fas fa-shield-alt"></i>
-                    <span>Risk Manager</span>
-                </a>
-                <a href="#portfolio" class="nav-item" data-view="portfolio">
-                    <i class="fas fa-briefcase"></i>
-                    <span>Portfolio</span>
-                </a>
-                <a href="#settings" class="nav-item" data-view="settings">
-                    <i class="fas fa-cog"></i>
-                    <span>Settings</span>
-                </a>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-sm); font-size: 0.85rem;">
+                <div><strong>Score:</strong> ${rec.score}/100</div>
+                <div><strong>Confidence:</strong> ${rec.confidence}%</div>
+                <div><strong>Trend:</strong> ${rec.trendScore}/100</div>
+                <div><strong>Momentum:</strong> ${rec.momentumScore}/100</div>
+                <div><strong>Volume:</strong> ${rec.volumeScore}/100</div>
+                <div><strong>Risk Level:</strong> ${rec.riskLevel?.level || 'N/A'}</div>
             </div>
 
-            <div class="sidebar-footer">
-                <div class="market-status" id="market-status">
-                    <span class="status-indicator"></span>
-                    <span class="status-text">Checking...</span>
+            <div style="border-top: 1px solid var(--border); padding-top: var(--spacing-sm);">
+                <h4 style="margin-bottom: var(--spacing-sm);">Trade Levels</h4>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--spacing-sm); font-size: 0.85rem;">
+                    <div><strong>Entry:</strong> ₹${formatPrice(rec.entry)}</div>
+                    <div><strong>Stop Loss:</strong> ₹${formatPrice(rec.stopLoss)}</div>
+                    <div><strong>Target 1:</strong> ₹${formatPrice(rec.targets?.[0] || 'N/A')}</div>
+                    <div><strong>Target 2:</strong> ₹${formatPrice(rec.targets?.[1] || 'N/A')}</div>
+                    <div><strong>Target 3:</strong> ₹${formatPrice(rec.targets?.[2] || 'N/A')}</div>
+                    <div><strong>Risk/Reward:</strong> 1:${rec.riskReward}</div>
                 </div>
-                <div class="sidebar-version">v2.0.0</div>
-            </div>
-        </nav>
-
-        <!-- Main Content Area -->
-        <main id="main-content" class="main-content">
-            <!-- Top Bar -->
-            <header id="topbar" class="topbar">
-                <div class="topbar-left">
-                    <div class="market-ticker" id="market-ticker">
-                        <div class="ticker-item" data-symbol="^NSEI">
-                            <span class="ticker-name">NIFTY</span>
-                            <span class="ticker-price" id="nifty-price">--</span>
-                            <span class="ticker-change" id="nifty-change">--</span>
-                        </div>
-                        <div class="ticker-item" data-symbol="^BSESN">
-                            <span class="ticker-name">SENSEX</span>
-                            <span class="ticker-price" id="sensex-price">--</span>
-                            <span class="ticker-change" id="sensex-change">--</span>
-                        </div>
-                        <div class="ticker-item" data-symbol="^NSEBANK">
-                            <span class="ticker-name">BANK NIFTY</span>
-                            <span class="ticker-price" id="banknifty-price">--</span>
-                            <span class="ticker-change" id="banknifty-change">--</span>
-                        </div>
-                        <div class="ticker-item" data-symbol="^INDIAVIX">
-                            <span class="ticker-name">INDIA VIX</span>
-                            <span class="ticker-price" id="vix-price">--</span>
-                            <span class="ticker-change" id="vix-change">--</span>
-                        </div>
-                    </div>
-                </div>
-                <div class="topbar-right">
-                    <button class="topbar-btn" id="theme-toggle" aria-label="Toggle Theme">
-                        <i class="fas fa-moon"></i>
-                    </button>
-                    <button class="topbar-btn" id="notif-btn" aria-label="Notifications">
-                        <i class="fas fa-bell"></i>
-                        <span class="notif-dot" id="notif-dot"></span>
-                    </button>
-                    <div class="topbar-search">
-                        <input type="text" id="global-search" placeholder="Search stocks..." autocomplete="off">
-                        <i class="fas fa-search search-icon"></i>
-                        <div class="search-results" id="search-results"></div>
-                    </div>
-                    <div class="topbar-time" id="topbar-time">--:--:--</div>
-                </div>
-            </header>
-
-            <!-- Page Content -->
-            <div class="page-container">
-                <!-- Dashboard View -->
-                <section id="view-dashboard" class="view active">
-                    <div class="dashboard-grid">
-                        <!-- Market Overview Cards -->
-                        <div class="card card-span-2" id="market-overview">
-                            <div class="card-header">
-                                <h3><i class="fas fa-chart-bar"></i> Market Overview</h3>
-                                <div class="card-actions">
-                                    <span class="update-time" id="market-update-time">Updating...</span>
-                                    <button class="btn-icon" onclick="refreshMarketData()"><i class="fas fa-sync-alt"></i></button>
-                                </div>
-                            </div>
-                            <div class="card-body">
-                                <div class="indices-grid" id="indices-grid">
-                                    <!-- Populated by JavaScript -->
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Market Heatmap -->
-                        <div class="card" id="market-heatmap-card">
-                            <div class="card-header">
-                                <h3><i class="fas fa-fire"></i> Market Heatmap</h3>
-                            </div>
-                            <div class="card-body">
-                                <div id="market-heatmap" class="heatmap-container">
-                                    <!-- Populated by JavaScript -->
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Top Gainers / Losers -->
-                        <div class="card" id="gainers-losers">
-                            <div class="card-header">
-                                <h3><i class="fas fa-arrow-up"></i> Top Movers</h3>
-                                <div class="tab-group">
-                                    <button class="tab-btn active" data-tab="gainers">Gainers</button>
-                                    <button class="tab-btn" data-tab="losers">Losers</button>
-                                    <button class="tab-btn" data-tab="active">Active</button>
-                                </div>
-                            </div>
-                            <div class="card-body">
-                                <div class="tab-content active" id="tab-gainers">
-                                    <table class="data-table compact" id="gainers-table">
-                                        <thead><tr><th>Symbol</th><th>Price</th><th>Change</th><th>%</th></tr></thead>
-                                        <tbody id="gainers-body"></tbody>
-                                    </table>
-                                </div>
-                                <div class="tab-content" id="tab-losers">
-                                    <table class="data-table compact" id="losers-table">
-                                        <thead><tr><th>Symbol</th><th>Price</th><th>Change</th><th>%</th></tr></thead>
-                                        <tbody id="losers-body"></tbody>
-                                    </table>
-                                </div>
-                                <div class="tab-content" id="tab-active">
-                                    <table class="data-table compact" id="active-table">
-                                        <thead><tr><th>Symbol</th><th>Price</th><th>Volume</th><th>Value</th></tr></thead>
-                                        <tbody id="active-body"></tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Sector Performance -->
-                        <div class="card card-span-2" id="sector-performance">
-                            <div class="card-header">
-                                <h3><i class="fas fa-layer-group"></i> Sector Performance</h3>
-                            </div>
-                            <div class="card-body">
-                                <div id="sector-chart" class="sector-container"></div>
-                            </div>
-                        </div>
-
-                        <!-- AI Quick Recommendations -->
-                        <div class="card card-span-2" id="ai-quick-rec">
-                            <div class="card-header">
-                                <h3><i class="fas fa-microchip"></i> AI Top Picks</h3>
-                                <span class="badge badge-accent">Live</span>
-                            </div>
-                            <div class="card-body">
-                                <div class="ai-picks-grid" id="ai-picks-container">
-                                    <!-- Populated by JavaScript -->
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Market Breadth -->
-                        <div class="card" id="market-breadth">
-                            <div class="card-header">
-                                <h3><i class="fas fa-chart-pie"></i> Market Breadth</h3>
-                            </div>
-                            <div class="card-body">
-                                <div id="breadth-container" class="breadth-display"></div>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-
-                <!-- Stock Scanner View -->
-                <section id="view-scanner" class="view">
-                    <div class="view-header">
-                        <h2><i class="fas fa-search"></i> AI Stock Scanner</h2>
-                        <div class="view-actions">
-                            <select id="scanner-filter" class="form-select">
-                                <option value="all">All Stocks</option>
-                                <option value="buy">Buy Signals</option>
-                                <option value="sell">Sell Signals</option>
-                                <option value="breakout">Breakout</option>
-                                <option value="breakdown">Breakdown</option>
-                                <option value="momentum">Momentum</option>
-                                <option value="reversal">Reversal</option>
-                                <option value="high-volume">High Volume</option>
-                            </select>
-                            <button class="btn btn-primary" onclick="runScanner()">
-                                <i class="fas fa-play"></i> Scan Now
-                            </button>
-                            <button class="btn btn-secondary" onclick="startAutoScan()">
-                                <i class="fas fa-sync-alt"></i> Auto Scan
-                            </button>
-                        </div>
-                    </div>
-                    <div class="scanner-results" id="scanner-results">
-                        <div class="scanner-stats" id="scanner-stats"></div>
-                        <div class="table-wrapper">
-                            <table class="data-table" id="scanner-table">
-                                <thead>
-                                    <tr>
-                                        <th>#</th>
-                                        <th>Symbol</th>
-                                        <th>Price</th>
-                                        <th>Signal</th>
-                                        <th>Confidence</th>
-                                        <th>Score</th>
-                                        <th>Action</th>
-                                        <th>Entry</th>
-                                        <th>SL</th>
-                                        <th>Target</th>
-                                        <th>R/R</th>
-                                        <th>Details</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="scanner-body"></tbody>
-                            </table>
-                        </div>
-                    </div>
-                </section>
-
-                <!-- Watchlist View -->
-                <section id="view-watchlist" class="view">
-                    <div class="view-header">
-                        <h2><i class="fas fa-star"></i> Watchlist</h2>
-                        <div class="view-actions">
-                            <button class="btn btn-primary" onclick="showAddToWatchlist()">
-                                <i class="fas fa-plus"></i> Add Stock
-                            </button>
-                            <button class="btn btn-secondary" onclick="createWatchlist()">
-                                <i class="fas fa-folder-plus"></i> New List
-                            </button>
-                        </div>
-                    </div>
-                    <div class="watchlist-container" id="watchlist-container">
-                        <div class="watchlist-tabs" id="watchlist-tabs"></div>
-                        <div class="watchlist-content" id="watchlist-content">
-                            <div class="empty-state">
-                                <i class="fas fa-star"></i>
-                                <h3>No Stocks in Watchlist</h3>
-                                <p>Add stocks to your watchlist to monitor them in real-time.</p>
-                                <button class="btn btn-primary" onclick="showAddToWatchlist()">Add Your First Stock</button>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-
-                <!-- Charts View -->
-                <section id="view-charts" class="view">
-                    <div class="view-header">
-                        <h2><i class="fas fa-chart-line"></i> Advanced Charts</h2>
-                        <div class="view-actions">
-                            <select id="chart-symbol" class="form-select">
-                                <!-- Populated by JavaScript -->
-                            </select>
-                            <select id="chart-interval" class="form-select">
-                                <option value="1m">1 Min</option>
-                                <option value="5m">5 Min</option>
-                                <option value="15m">15 Min</option>
-                                <option value="30m">30 Min</option>
-                                <option value="60m">1 Hour</option>
-                                <option value="1d">Daily</option>
-                                <option value="1w">Weekly</option>
-                            </select>
-                            <select id="chart-indicator" class="form-select">
-                                <option value="none">No Indicator</option>
-                                <option value="ema">EMA</option>
-                                <option value="sma">SMA</option>
-                                <option value="bb">Bollinger Bands</option>
-                                <option value="rsi">RSI</option>
-                                <option value="macd">MACD</option>
-                                <option value="supertrend">Supertrend</option>
-                            </select>
-                            <button class="btn btn-secondary" onclick="toggleChartDrawing()">
-                                <i class="fas fa-pencil-alt"></i> Drawing
-                            </button>
-                            <button class="btn btn-secondary" onclick="toggleChartIndicator()">
-                                <i class="fas fa-chart-bar"></i> Apply
-                            </button>
-                        </div>
-                    </div>
-                    <div class="chart-container">
-                        <div id="trading-chart" class="trading-chart"></div>
-                        <div id="chart-indicator-panel" class="indicator-panel"></div>
-                    </div>
-                    <div class="chart-info-grid">
-                        <div class="card" id="chart-info">
-                            <div class="card-header">
-                                <h3 id="chart-info-title">Stock Info</h3>
-                            </div>
-                            <div class="card-body" id="chart-info-body"></div>
-                        </div>
-                        <div class="card" id="chart-technical-summary">
-                            <div class="card-header">
-                                <h3><i class="fas fa-chart-simple"></i> Technical Summary</h3>
-                            </div>
-                            <div class="card-body" id="tech-summary-body"></div>
-                        </div>
-                    </div>
-                </section>
-
-                <!-- Recommendations View -->
-                <section id="view-recommendations" class="view">
-                    <div class="view-header">
-                        <h2><i class="fas fa-bullhorn"></i> AI Trade Recommendations</h2>
-                        <div class="view-actions">
-                            <select id="rec-filter" class="form-select">
-                                <option value="all">All Signals</option>
-                                <option value="strong-buy">Strong Buy</option>
-                                <option value="buy">Buy</option>
-                                <option value="neutral">Neutral</option>
-                                <option value="sell">Sell</option>
-                                <option value="strong-sell">Strong Sell</option>
-                            </select>
-                            <span class="update-badge" id="rec-update-time">Last: --</span>
-                        </div>
-                    </div>
-                    <div class="recommendations-grid" id="recommendations-container">
-                        <!-- Populated by JavaScript -->
-                    </div>
-                </section>
-
-                <!-- AI Assistant View -->
-                <section id="view-assistant" class="view">
-                    <div class="view-header">
-                        <h2><i class="fas fa-brain"></i> AI Trading Assistant</h2>
-                        <span class="badge badge-accent">Powered by AI</span>
-                    </div>
-                    <div class="assistant-container">
-                        <div class="assistant-chat" id="assistant-chat">
-                            <div class="chat-messages" id="chat-messages">
-                                <div class="chat-message bot">
-                                    <div class="message-avatar"><i class="fas fa-robot"></i></div>
-                                    <div class="message-content">
-                                        <p>Hello! I'm your AI Trading Assistant. I can help you with:</p>
-                                        <ul>
-                                            <li>📊 Analyze stocks and provide recommendations</li>
-                                            <li>📈 Explain technical indicators</li>
-                                            <li>💡 Suggest intraday opportunities</li>
-                                            <li>⚡ Assess market conditions</li>
-                                            <li>📉 Risk analysis and position sizing</li>
-                                        </ul>
-                                        <p>Ask me anything about the market!</p>
-                                    </div>
-                                </div>
-                            </div>
-                            <div class="chat-input-container">
-                                <div class="chat-suggestions" id="chat-suggestions">
-                                    <button class="suggestion-chip" onclick="sendQuickQuery('What is the best intraday opportunity today?')">Best intraday pick</button>
-                                    <button class="suggestion-chip" onclick="sendQuickQuery('Analyze RELIANCE for intraday')">Analyze RELIANCE</button>
-                                    <button class="suggestion-chip" onclick="sendQuickQuery('Is market bullish today?')">Market sentiment</button>
-                                    <button class="suggestion-chip" onclick="sendQuickQuery('Suggest risk management tips')">Risk tips</button>
-                                </div>
-                                <div class="chat-input-row">
-                                    <input type="text" id="chat-input" placeholder="Ask about stocks, indicators, or market..." autocomplete="off">
-                                    <button class="btn btn-primary" onclick="sendChatMessage()">
-                                        <i class="fas fa-paper-plane"></i>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-
-                <!-- Risk Manager View -->
-                <section id="view-risk" class="view">
-                    <div class="view-header">
-                        <h2><i class="fas fa-shield-alt"></i> Risk Manager</h2>
-                        <button class="btn btn-secondary" onclick="resetRiskCalculator()">
-                            <i class="fas fa-redo"></i> Reset
-                        </button>
-                    </div>
-                    <div class="risk-grid">
-                        <div class="card">
-                            <div class="card-header">
-                                <h3><i class="fas fa-calculator"></i> Position Size Calculator</h3>
-                            </div>
-                            <div class="card-body">
-                                <div class="form-group">
-                                    <label>Capital (₹)</label>
-                                    <input type="number" id="risk-capital" class="form-input" value="100000">
-                                </div>
-                                <div class="form-group">
-                                    <label>Entry Price (₹)</label>
-                                    <input type="number" id="risk-entry" class="form-input" placeholder="Enter price">
-                                </div>
-                                <div class="form-group">
-                                    <label>Stop Loss (₹)</label>
-                                    <input type="number" id="risk-sl" class="form-input" placeholder="Enter stop loss">
-                                </div>
-                                <div class="form-group">
-                                    <label>Target (₹)</label>
-                                    <input type="number" id="risk-target" class="form-input" placeholder="Enter target">
-                                </div>
-                                <div class="form-group">
-                                    <label>Risk per Trade (%)</label>
-                                    <input type="number" id="risk-percent" class="form-input" value="2" min="0.5" max="10" step="0.5">
-                                </div>
-                                <button class="btn btn-primary btn-block" onclick="calculatePositionSize()">
-                                    <i class="fas fa-calculator"></i> Calculate
-                                </button>
-                            </div>
-                        </div>
-                        <div class="card">
-                            <div class="card-header">
-                                <h3><i class="fas fa-chart-pie"></i> Risk Analysis</h3>
-                            </div>
-                            <div class="card-body" id="risk-analysis-results">
-                                <div class="risk-result-grid" id="risk-result-grid">
-                                    <div class="risk-item">
-                                        <span class="risk-label">Position Size</span>
-                                        <span class="risk-value" id="risk-position-size">--</span>
-                                    </div>
-                                    <div class="risk-item">
-                                        <span class="risk-label">Risk Amount</span>
-                                        <span class="risk-value" id="risk-amount">--</span>
-                                    </div>
-                                    <div class="risk-item">
-                                        <span class="risk-label">Risk/Reward</span>
-                                        <span class="risk-value" id="risk-rr">--</span>
-                                    </div>
-                                    <div class="risk-item">
-                                        <span class="risk-label">Potential Profit</span>
-                                        <span class="risk-value positive" id="risk-profit">--</span>
-                                    </div>
-                                    <div class="risk-item">
-                                        <span class="risk-label">Capital at Risk</span>
-                                        <span class="risk-value danger" id="risk-capital-risk">--</span>
-                                    </div>
-                                    <div class="risk-item">
-                                        <span class="risk-label">Exposure %</span>
-                                        <span class="risk-value" id="risk-exposure">--</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="card card-span-2">
-                            <div class="card-header">
-                                <h3><i class="fas fa-exclamation-triangle"></i> Risk Alerts & Rules</h3>
-                            </div>
-                            <div class="card-body">
-                                <div class="risk-rules" id="risk-rules">
-                                    <div class="rule good">
-                                        <i class="fas fa-check-circle"></i>
-                                        <span>Daily Loss Limit: 5% (₹5,000)</span>
-                                    </div>
-                                    <div class="rule good">
-                                        <i class="fas fa-check-circle"></i>
-                                        <span>Max Risk Per Trade: 2%</span>
-                                    </div>
-                                    <div class="rule good">
-                                        <i class="fas fa-check-circle"></i>
-                                        <span>Min Risk/Reward: 1.5</span>
-                                    </div>
-                                    <div class="rule good">
-                                        <i class="fas fa-check-circle"></i>
-                                        <span>Max Active Trades: 5</span>
-                                    </div>
-                                    <div class="rule good">
-                                        <i class="fas fa-check-circle"></i>
-                                        <span>Portfolio Exposure Limit: 80%</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-
-                <!-- Portfolio View -->
-                <section id="view-portfolio" class="view">
-                    <div class="view-header">
-                        <h2><i class="fas fa-briefcase"></i> Portfolio Tracker</h2>
-                        <div class="view-actions">
-                            <button class="btn btn-primary" onclick="showAddTrade()">
-                                <i class="fas fa-plus"></i> Add Trade
-                            </button>
-                            <button class="btn btn-secondary" onclick="exportPortfolio()">
-                                <i class="fas fa-download"></i> Export
-                            </button>
-                        </div>
-                    </div>
-                    <div class="portfolio-grid">
-                        <div class="card">
-                            <div class="card-header">
-                                <h3><i class="fas fa-wallet"></i> Portfolio Summary</h3>
-                            </div>
-                            <div class="card-body">
-                                <div class="portfolio-summary" id="portfolio-summary">
-                                    <div class="summary-item">
-                                        <span class="summary-label">Total Capital</span>
-                                        <span class="summary-value" id="portfolio-capital">₹1,00,000</span>
-                                    </div>
-                                    <div class="summary-item">
-                                        <span class="summary-label">Invested</span>
-                                        <span class="summary-value" id="portfolio-invested">₹0</span>
-                                    </div>
-                                    <div class="summary-item">
-                                        <span class="summary-label">P&L</span>
-                                        <span class="summary-value" id="portfolio-pnl">₹0</span>
-                                    </div>
-                                    <div class="summary-item">
-                                        <span class="summary-label">Returns</span>
-                                        <span class="summary-value" id="portfolio-returns">0%</span>
-                                    </div>
-                                    <div class="summary-item">
-                                        <span class="summary-label">Win Rate</span>
-                                        <span class="summary-value" id="portfolio-winrate">0%</span>
-                                    </div>
-                                    <div class="summary-item">
-                                        <span class="summary-label">Trades</span>
-                                        <span class="summary-value" id="portfolio-trades">0</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="card card-span-2">
-                            <div class="card-header">
-                                <h3><i class="fas fa-book"></i> Trading Journal</h3>
-                            </div>
-                            <div class="card-body">
-                                <div class="table-wrapper">
-                                    <table class="data-table" id="journal-table">
-                                        <thead>
-                                            <tr>
-                                                <th>Date</th>
-                                                <th>Symbol</th>
-                                                <th>Type</th>
-                                                <th>Entry</th>
-                                                <th>Exit</th>
-                                                <th>Qty</th>
-                                                <th>P&L</th>
-                                                <th>Status</th>
-                                                <th>Notes</th>
-                                                <th>Actions</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="journal-body">
-                                            <tr><td colspan="10" class="empty-row">No trades recorded yet</td></tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </section>
-
-                <!-- Settings View -->
-                <section id="view-settings" class="view">
-                    <div class="view-header">
-                        <h2><i class="fas fa-cog"></i> Settings</h2>
-                    </div>
-                    <div class="settings-grid">
-                        <div class="card">
-                            <div class="card-header">
-                                <h3><i class="fas fa-palette"></i> Appearance</h3>
-                            </div>
-                            <div class="card-body">
-                                <div class="setting-item">
-                                    <span>Theme</span>
-                                    <select id="settings-theme" class="form-select" onchange="changeTheme(this.value)">
-                                        <option value="dark">Dark Mode</option>
-                                        <option value="light">Light Mode</option>
-                                    </select>
-                                </div>
-                                <div class="setting-item">
-                                    <span>Animations</span>
-                                    <label class="toggle">
-                                        <input type="checkbox" id="settings-animations" checked onchange="toggleAnimations(this.checked)">
-                                        <span class="toggle-slider"></span>
-                                    </label>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="card">
-                            <div class="card-header">
-                                <h3><i class="fas fa-database"></i> Data & API</h3>
-                            </div>
-                            <div class="card-body">
-                                <div class="setting-item">
-                                    <span>Refresh Interval (s)</span>
-                                    <select id="settings-refresh" class="form-select" onchange="changeRefreshInterval(this.value)">
-                                        <option value="5000">5 seconds</option>
-                                        <option value="10000">10 seconds</option>
-                                        <option value="30000">30 seconds</option>
-                                        <option value="60000">1 minute</option>
-                                    </select>
-                                </div>
-                                <div class="setting-item">
-                                    <span>News API Key</span>
-                                    <input type="password" id="settings-news-api" class="form-input" placeholder="Enter API key">
-                                </div>
-                            </div>
-                        </div>
-                        <div class="card">
-                            <div class="card-header">
-                                <h3><i class="fas fa-chart-simple"></i> Trading Preferences</h3>
-                            </div>
-                            <div class="card-body">
-                                <div class="setting-item">
-                                    <span>Default Capital (₹)</span>
-                                    <input type="number" id="settings-capital" class="form-input" value="100000">
-                                </div>
-                                <div class="setting-item">
-                                    <span>Risk Per Trade (%)</span>
-                                    <input type="number" id="settings-risk" class="form-input" value="2" min="0.5" max="10" step="0.5">
-                                </div>
-                                <div class="setting-item">
-                                    <span>Position Sizing</span>
-                                    <select id="settings-sizing" class="form-select">
-                                        <option value="fixed">Fixed</option>
-                                        <option value="percent">Percentage</option>
-                                        <option value="kelly">Kelly Criterion</option>
-                                    </select>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="card card-span-2">
-                            <div class="card-header">
-                                <h3><i class="fas fa-info-circle"></i> About</h3>
-                            </div>
-                            <div class="card-body">
-                                <div class="about-info">
-                                    <p><strong>AI Intraday Trading Platform</strong> v2.0.0</p>
-                                    <p>This is an AI-powered decision support tool for Indian stock market intraday trading analysis.</p>
-                                    <p><strong>Disclaimer:</strong> This platform provides analysis only. It does not execute trades automatically. All recommendations are based on technical analysis, market data, and AI algorithms. Trading in stock markets carries inherent risk. Past performance does not guarantee future results. Always do your own research before making trading decisions.</p>
-                                    <p>Built by <a href="https://github.com/IamMPQ" target="_blank">IamMPQ</a></p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </section>
             </div>
 
-            <!-- Footer -->
-            <footer class="app-footer">
-                <div class="footer-content">
-                    <span>&copy; 2024-2026 AI Intraday Trading. All rights reserved.</span>
-                    <span class="footer-links">
-                        <a href="#disclaimer" onclick="showDisclaimer()">Disclaimer</a>
-                        <a href="https://github.com/IamMPQ/Trading.github.io" target="_blank">GitHub</a>
-                    </span>
-                </div>
-            </footer>
-        </main>
-    </div>
-
-    <!-- Notification Container -->
-    <div id="notification-container" class="notification-container"></div>
-
-    <!-- Modal Container -->
-    <div id="modal-overlay" class="modal-overlay">
-        <div class="modal" id="modal">
-            <div class="modal-header">
-                <h3 id="modal-title">Modal</h3>
-                <button class="modal-close" onclick="closeModal()">&times;</button>
+            <div style="border-top: 1px solid var(--border); padding-top: var(--spacing-sm);">
+                <h4 style="margin-bottom: var(--spacing-sm);">AI Reasoning</h4>
+                <p style="font-size: 0.85rem; line-height: 1.6;">${rec.reasoning}</p>
             </div>
-            <div class="modal-body" id="modal-body"></div>
-            <div class="modal-footer" id="modal-footer"></div>
+
+            ${rec.patterns?.length > 0 ? `
+            <div style="border-top: 1px solid var(--border); padding-top: var(--spacing-sm);">
+                <h4 style="margin-bottom: var(--spacing-sm);">Detected Patterns</h4>
+                <p style="font-size: 0.85rem;">${rec.patterns.join(', ')}</p>
+            </div>` : ''}
         </div>
-    </div>
+    `;
 
-    <!-- JavaScript Modules -->
-    <script type="module" src="src/js/config.js"></script>
-    <script type="module" src="src/js/utils/helpers.js"></script>
-    <script type="module" src="src/js/utils/storage.js"></script>
-    <script type="module" src="src/js/utils/indicators.js"></script>
-    <script type="module" src="src/js/api/nse.js"></script>
-    <script type="module" src="src/js/api/market.js"></script>
-    <script type="module" src="src/js/api/news.js"></script>
-    <script type="module" src="src/js/analysis/technical.js"></script>
-    <script type="module" src="src/js/analysis/sentiment.js"></script>
-    <script type="module" src="src/js/analysis/ai-engine.js"></script>
-    <script type="module" src="src/js/components/dashboard.js"></script>
-    <script type="module" src="src/js/components/scanner.js"></script>
-    <script type="module" src="src/js/components/watchlist.js"></script>
-    <script type="module" src="src/js/components/charts.js"></script>
-    <script type="module" src="src/js/components/assistant.js"></script>
-    <script type="module" src="src/js/components/risk-manager.js"></script>
-    <script type="module" src="src/js/ui/theme.js"></script>
-    <script type="module" src="src/js/ui/notifications.js"></script>
-    <script type="module" src="src/js/ui/router.js"></script>
-    <script type="module" src="src/js/app.js"></script>
-</body>
-</html>
+    footer.innerHTML = `
+        <button class="btn btn-secondary" onclick="closeModal()">Close</button>
+        <button class="btn btn-primary" onclick="addToWatchlist('${symbol}'); closeModal();">
+            <i class="fas fa-star"></i> Add to Watchlist
+        </button>
+        <button class="btn btn-accent" onclick="navigateTo('charts', '${symbol}'); closeModal();">
+            <i class="fas fa-chart-line"></i> View Chart
+        </button>
+    `;
+
+    showModal();
+}
+
+/**
+ * Generate mock OHLC data for demo purposes
+ */
+function generateMockOHLC(symbol) {
+    const basePrice = MarketAPI._getBasePrice(symbol);
+    const data = [];
+    const now = Date.now();
+    const interval = 15 * 60 * 1000; // 15 min
+    const periods = 200;
+    
+    let price = basePrice;
+    
+    for (let i = periods; i >= 0; i--) {
+        const volatility = price * 0.015;
+        const change = (Math.random() - 0.5) * volatility * 2;
+        const open = price;
+        const close = price + change;
+        const high = Math.max(open, close) + Math.random() * volatility;
+        const low = Math.min(open, close) - Math.random() * volatility;
+        const volume = Math.floor(Math.random() * 5000000 + 100000);
+        
+        data.push({
+            time: now - i * interval,
+            open,
+            high,
+            low,
+            close,
+            volume
+        });
+        
+        price = close;
+    }
+    
+    return data;
+}
+
+/**
+ * Generate basic analysis for stocks not analyzed by AI
+ */
+function generateBasicAnalysis(symbol) {
+    const price = MarketAPI._getBasePrice(symbol);
+    const score = Math.floor(Math.random() * 60 + 20);
+    const confidence = Math.floor(Math.random() * 50 + 25);
+    
+    let signal = 'neutral';
+    if (score >= 70) signal = 'buy';
+    else if (score >= 60) signal = 'buy';
+    else if (score <= 30) signal = 'sell';
+    else if (score <= 20) signal = 'strong-sell';
+    
+    return {
+        symbol,
+        currentPrice: price,
+        signal,
+        confidence,
+        score,
+        trendScore: Math.floor(Math.random() * 100),
+        momentumScore: Math.floor(Math.random() * 100),
+        volumeScore: Math.floor(Math.random() * 100),
+        entry: price,
+        stopLoss: price * 0.98,
+        targets: [price * 1.015, price * 1.025, price * 1.04],
+        riskReward: '1.5',
+        reasoning: `Basic analysis for ${symbol}. Run detailed scanner for comprehensive analysis.`,
+        patterns: [],
+        riskLevel: { level: 'Medium', score: 35, factors: [] }
+    };
+}
+
+// Make globally accessible
+window.runScanner = runScanner;
+window.startAutoScan = startAutoScan;
+window.showStockDetail = showStockDetail;
+
+export { runScanner, startAutoScan, showStockDetail };
