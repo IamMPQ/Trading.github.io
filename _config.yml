@@ -1,0 +1,39 @@
+# GitHub Pages Configuration
+# Site settings
+title: AI Intraday Trading Platform
+description: AI-powered analysis for Indian stock market intraday trading
+author: IamMPQ
+url: https://iammpq.github.io
+baseurl: /Trading.github.io
+
+# Build settings
+markdown: kramdown
+theme: jekyll-theme-cayman
+
+# Include files for GitHub Pages
+include:
+  - .well-known
+
+# Exclude files from processing
+exclude:
+  - README.md
+  - docs/
+  - .gitignore
+  - node_modules
+  - package.json
+  - yarn.lock
+
+# Defaults
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: "default"
+
+# GitHub metadata
+github:
+  repository_url: https://github.com/IamMPQ/Trading.github.io
+
+# SEO
+google_analytics: 
+disqus:
